@@ -1,0 +1,83 @@
+CREATE PROCEDURE AllocateSubjects
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    CREATE TABLE #Allotments (
+        SubjectId VARCHAR(10),
+        StudentId VARCHAR(10)
+    );
+
+    CREATE TABLE #UnallottedStudents (
+        StudentId VARCHAR(10)
+    );
+
+    DECLARE student_cursor CURSOR FOR
+    SELECT StudentId
+    FROM StudentDetails
+    ORDER BY GPA DESC;
+
+    DECLARE @StudentId VARCHAR(10);
+
+    OPEN student_cursor;
+    FETCH NEXT FROM student_cursor INTO @StudentId;
+
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        DECLARE @Allotted BIT = 0;
+
+        DECLARE pref_cursor CURSOR FOR
+        SELECT SP.SubjectId
+        FROM StudentPreference SP
+        WHERE SP.StudentId = @StudentId
+        ORDER BY SP.Preference ASC;
+
+        DECLARE @SubjectId VARCHAR(10);
+
+        OPEN pref_cursor;
+        FETCH NEXT FROM pref_cursor INTO @SubjectId;
+
+        WHILE @@FETCH_STATUS = 0 AND @Allotted = 0
+        BEGIN
+            DECLARE @Seats INT;
+            SELECT @Seats = RemainingSeats
+            FROM SubjectDetails
+            WHERE SubjectId = @SubjectId;
+
+            IF @Seats > 0
+            BEGIN
+                INSERT INTO #Allotments VALUES (@SubjectId, @StudentId);
+
+                UPDATE SubjectDetails
+                SET RemainingSeats = RemainingSeats - 1
+                WHERE SubjectId = @SubjectId;
+
+                SET @Allotted = 1;
+            END
+
+            FETCH NEXT FROM pref_cursor INTO @SubjectId;
+        END
+
+        CLOSE pref_cursor;
+        DEALLOCATE pref_cursor;
+
+        IF @Allotted = 0
+        BEGIN
+            INSERT INTO #UnallottedStudents VALUES (@StudentId);
+        END
+
+        FETCH NEXT FROM student_cursor INTO @StudentId;
+    END
+
+    CLOSE student_cursor;
+    DEALLOCATE student_cursor;
+
+    INSERT INTO Allotments
+    SELECT * FROM #Allotments;
+
+    INSERT INTO UnallotedStudents
+    SELECT * FROM #UnallottedStudents;
+
+    DROP TABLE #Allotments;
+    DROP TABLE #UnallottedStudents;
+END;
